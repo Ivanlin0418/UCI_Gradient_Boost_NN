@@ -25,7 +25,7 @@ def load_sparse_data(file_path):
             parts = line.strip().split()
             label = int(parts[0])
             # Convert -1 labels to 0
-            if label == -1:
+            if label == -1: 
                 label = 0
             y.append(label)
             for item in parts[1:]:
@@ -149,9 +149,9 @@ def load_and_preprocess_data(file_path):
 def main():
 	logging.info("Starting main function...")
 
-	X_train_scaled,y_train=load_and_preprocess_data('research/dataset/smaller_dataset/training_data.txt')
+	X_train_scaled,y_train=load_and_preprocess_data('datasets/testing_data.txt')
     
-	X_test_scaled,y_test=load_and_preprocess_data('research/dataset/smaller_dataset/testing_data.txt')
+	X_test_scaled,y_test=load_and_preprocess_data('datasets/training_data.txt')
 
 	X_train,X_val,y_train,y_val=train_test_split(X_train_scaled,y_train,test_size=0.2 ,random_state=42)
 
