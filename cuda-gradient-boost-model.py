@@ -11,6 +11,8 @@ import lightgbm as lgb
 from catboost import CatBoostClassifier
 import optuna
 import logging
+import joblib
+import os
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -102,79 +104,85 @@ def objective(trial, X, y, feature_selector):
     
     return np.mean(scores)
 
-def train_stacking_ensemble(X_train_selected,y_train,best_params):
-    base_models=[
-        ('xgb',xgb.XGBClassifier(**best_params)),
-        ('lgb',lgb.LGBMClassifier(device='gpu' ,boosting_type='gbdt' ,random_state=42)),
-        ('cat',CatBoostClassifier(task_type='GPU' ,random_seed=42 ,verbose=False)) ]
+def train_stacking_ensemble(X_train_selected, y_train, best_params):
+    base_models = [
+        ('xgb', xgb.XGBClassifier(**best_params)),
+        ('lgb', lgb.LGBMClassifier(device='gpu', boosting_type='gbdt', random_state=42)),
+        ('cat', CatBoostClassifier(task_type='GPU', random_seed=42, verbose=False))
+    ]
 
-    meta_model=LogisticRegression()
+    meta_model = LogisticRegression()
 
-    stacking_model=StackingClassifier(estimators=base_models ,final_estimator=meta_model)
+    stacking_model = StackingClassifier(estimators=base_models, final_estimator=meta_model)
 
-    stacking_model.fit(X_train_selected,y_train )
+    stacking_model.fit(X_train_selected, y_train)
+
+    # Check if the model file already exists and only save if it doesn't
+    model_filename = 'stacking_model.pkl'
+    if not os.path.exists(model_filename):
+        joblib.dump(stacking_model, model_filename)  # Save the model to a file
+        logging.info('Model saved to stacking_model.pkl')
+    else:
+        logging.info('Model already exists, not saving.')
 
     return stacking_model
 
-def iterative_optimization(X_train_scaled,y_train_scaled ,feature_selector):
-    study=optuna.create_study(direction='maximize')
+def iterative_optimization(X_train_scaled, y_train_scaled, feature_selector):
+    study = optuna.create_study(direction='maximize')
 
-    study.optimize(lambda trial:objective(trial,X_train_scaled,y_train_scaled ,feature_selector),n_trials=50)
+    study.optimize(lambda trial: objective(trial, X_train_scaled, y_train_scaled, feature_selector), n_trials=5)
 
-    best_params=study.best_params
+    best_params = study.best_params
 
     logging.info(f"Best score: {study.best_value:.4f}")
 
     return best_params
 
-
 def load_and_preprocess_data(file_path):
-    X,y=load_sparse_data(file_path)
+    X, y = load_sparse_data(file_path)
 
     # Remove constant features
-    selector=VarianceThreshold() # Default threshold is 0 to remove all-zero variance features
-    X=selector.fit_transform(X)
+    selector = VarianceThreshold()  # Default threshold is 0 to remove all-zero variance features
+    X = selector.fit_transform(X)
 
-    X=create_interaction_features(X)
+    X = create_interaction_features(X)
     
-    X=add_polynomial_features(X) # Add polynomial features
+    X = add_polynomial_features(X)  # Add polynomial features
 
-    scaler=StandardScaler(with_mean=False)
+    scaler = StandardScaler(with_mean=False)
     
-    X_scaled=scaler.fit_transform(X)
+    X_scaled = scaler.fit_transform(X)
 
-    return X_scaled,y
-
+    return X_scaled, y
 
 def main():
 	logging.info("Starting main function...")
 
-	X_train_scaled,y_train=load_and_preprocess_data('datasets/testing_data.txt')
+	X_train_scaled, y_train = load_and_preprocess_data('datasets/testing_data.txt')
     
-	X_test_scaled,y_test=load_and_preprocess_data('datasets/training_data.txt')
+	X_test_scaled, y_test = load_and_preprocess_data('datasets/training_data.txt')
 
-	X_train,X_val,y_train,y_val=train_test_split(X_train_scaled,y_train,test_size=0.2 ,random_state=42)
+	X_train, X_val, y_train, y_val = train_test_split(X_train_scaled, y_train, test_size=0.2, random_state=42)
 
-	feature_selector=dynamic_feature_selection(X_train,y_train) # Use dynamic feature selection
+	feature_selector = dynamic_feature_selection(X_train, y_train)  # Use dynamic feature selection
 
-	best_params=iterative_optimization(X_train,y_train ,feature_selector)
+	best_params = iterative_optimization(X_train, y_train, feature_selector)
 
-	X_train_selected=feature_selector.transform(X_train)
+	X_train_selected = feature_selector.transform(X_train)
 
-	stacking_model=train_stacking_ensemble(X_train_selected,y_train,best_params) # Train stacking ensemble
+	stacking_model = train_stacking_ensemble(X_train_selected, y_train, best_params)  # Train stacking ensemble
 
-	X_test_selected=feature_selector.transform(X_test_scaled)
+	X_test_selected = feature_selector.transform(X_test_scaled)
 
-	test_preds=stacking_model.predict(X_test_selected) # Use stacking model for predictions
+	test_preds = stacking_model.predict(X_test_selected)  # Use stacking model for predictions
 
-	test_accuracy=accuracy_score(y_test,test_preds )
+	test_accuracy = accuracy_score(y_test, test_preds)
     
-	test_f1=f1_score(y_test,test_preds )
+	test_f1 = f1_score(y_test, test_preds)
 
 	logging.info(f"Test Accuracy: {test_accuracy:.4f}")
     
 	logging.info(f"Test F1 Score: {test_f1:.4f}")
 
-
-if __name__=="__main__":
+if __name__ == "__main__":
 	main()
